@@ -1,7 +1,17 @@
 
 import { test, expect } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
-test('Naukri login and update resume headline', async ({ page }) => {
+const resumeDownloadDirectory = path.join(process.cwd(), 'downloads');
+const updateDate = new Date();
+const dateTag = `${updateDate.getDate()}${new Intl.DateTimeFormat('en-US', {
+  month: 'short'
+}).format(updateDate)}`;
+let renamedResumeName: string | undefined;
+let renamedResumePath: string | undefined;
+
+test('Naukri login, refresh resume, and update resume headline', async ({ page }) => {
   await test.step('Open Naukri homepage', async () => {
     await page.goto('https://www.naukri.com/');
   });
@@ -41,10 +51,59 @@ test('Naukri login and update resume headline', async ({ page }) => {
 
   await test.step('Open profile', async () => {
     await page.getByRole('link', { name: 'View profile' }).click();
+
+    await page.getByRole('button', { name: 'Resume', exact: true })
+      .waitFor({ state: 'visible' });
+
+    const profileNameElement = page.locator('.fullname');
+    await expect(profileNameElement).toHaveText(/\S+/, { timeout: 15000 });
+    const profileName = (await profileNameElement.innerText()).trim();
+    const safeProfileName = profileName
+      .replace(/[<>:"|?*\x00-\x1F]/g, '_')
+      .replace(/[\/\\]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    if (!safeProfileName) {
+      throw new Error('Could not read the profile name for the resume filename.');
+    }
+
+    renamedResumeName = `${safeProfileName}_${dateTag}.pdf`;
+    renamedResumePath = path.join(resumeDownloadDirectory, renamedResumeName);
   });
 
   await test.step('Open resume section', async () => {
-    await page.getByText('ResumeUpdate').click();
+    await page.getByRole('button', { name: 'Resume', exact: true }).click();
+  });
+
+  await test.step('Download and rename the current resume', async () => {
+    if (!renamedResumePath) {
+      throw new Error('The dated resume filename was not initialized.');
+    }
+
+    await mkdir(resumeDownloadDirectory, { recursive: true });
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download resume' }).click();
+    const download = await downloadPromise;
+    await download.saveAs(renamedResumePath);
+  });
+
+  await test.step('Upload the renamed resume', async () => {
+    if (!renamedResumeName || !renamedResumePath) {
+      throw new Error('The dated resume filename was not initialized.');
+    }
+
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Update resume' }).click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles(renamedResumePath);
+
+    await expect(page.getByText('Resume has been successfully uploaded.', { exact: true }))
+      .toBeVisible({ timeout: 30000 });
+    await expect(page.getByTitle(renamedResumeName))
+      .toBeVisible({ timeout: 30000 });
   });
 
   await test.step('Open resume headline editor', async () => {
