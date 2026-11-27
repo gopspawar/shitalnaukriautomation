@@ -4,11 +4,12 @@ An automated QA project built with Playwright, TypeScript, and Node.js to refres
 
 ## Project Overview
 
-The Playwright test signs in to Naukri, downloads the current resume, saves it with the profile display name and current day/month in its filename, uploads it back to the profile, updates the resume headline, verifies the changes, and signs out.
+The Playwright test signs in to Naukri, refreshes the JIRA key skill, downloads the current resume, saves it with the profile display name and current day/month in its filename, uploads it back to the profile, updates the resume headline, verifies the changes, and signs out.
 
 ## Features
 
 - Automated Naukri login and logout
+- JIRA key skill refresh, removing an existing entry before adding it again
 - Resume download, date-stamped rename, and upload
 - Resume headline update and verification
 - Profile display name included in the resume filename
@@ -92,7 +93,6 @@ Reports are written to `playwright-report/`; failure artifacts are written to `t
 
 ## Future Enhancements
 
-- Profile skills updates with duplicate prevention
 - Reusable Page Object Model
 - Before-and-after screenshots for successful runs
 - CI/CD integration
