@@ -1,7 +1,26 @@
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+
+async function dismissProfileUpdateConfirmation(page: Page): Promise<void> {
+  const confirmation = page.locator('.profileUpdatedProLayer.model_open');
+
+  try {
+    await confirmation.waitFor({ state: 'visible', timeout: 3000 });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (await confirmation.isVisible()) {
+    await confirmation.getByRole('button', { name: 'Close' }).click({ force: true });
+    await expect(confirmation).toBeHidden();
+  }
+}
 
 const resumeDownloadDirectory = path.join(process.cwd(), 'downloads');
 const updateDate = new Date();
@@ -12,6 +31,8 @@ let renamedResumeName: string | undefined;
 let renamedResumePath: string | undefined;
 
 test('Naukri login, refresh resume, and update resume headline', async ({ page }) => {
+  test.setTimeout(120000);
+
   await test.step('Open Naukri homepage', async () => {
     await page.goto('https://www.naukri.com/');
   });
@@ -73,6 +94,56 @@ test('Naukri login, refresh resume, and update resume headline', async ({ page }
     renamedResumePath = path.join(resumeDownloadDirectory, renamedResumeName);
   });
 
+  await test.step('Refresh the JIRA key skill', async () => {
+    await page.getByRole('heading', { name: 'Key skills' }).click();
+    await page.getByRole('button', { name: 'Edit key skills' }).click();
+
+    const jiraSkills = page.getByText('JIRA', { exact: true });
+    let existingJiraFound = false;
+    let jiraRemoveControl: Locator | undefined;
+
+    for (let index = 0; index < await jiraSkills.count(); index += 1) {
+      if (await jiraSkills.nth(index).isVisible()) {
+        existingJiraFound = true;
+        break;
+      }
+    }
+
+    const skillRemoveLinks = page.getByRole('link', { name: 'Cross', exact: true });
+    for (let index = 0; index < await skillRemoveLinks.count(); index += 1) {
+      const candidate = skillRemoveLinks.nth(index);
+      if (await candidate.isVisible()) {
+        const chipText =
+          (await candidate.locator('xpath=..').innerText()).replace(/Cross|×/g, '').trim();
+        if (chipText === 'JIRA') {
+          jiraRemoveControl = candidate;
+          break;
+        }
+      }
+    }
+
+    if (existingJiraFound && !jiraRemoveControl) {
+      throw new Error('JIRA is already selected, but its remove control could not be found.');
+    }
+    if (jiraRemoveControl) {
+      await jiraRemoveControl.click();
+      await page.getByRole('button', { name: 'Save' }).click();
+      await dismissProfileUpdateConfirmation(page);
+      await page.getByRole('button', { name: 'Edit key skills' }).click();
+    }
+
+    const addSkills = page.getByRole('combobox', { name: 'Add skills' });
+    await addSkills.click();
+    await addSkills.pressSequentially('JIRA', { delay: 100 });
+    const jiraSuggestion = page.getByRole('option', { name: 'JIRA', exact: true });
+    await expect(jiraSuggestion).toBeVisible({ timeout: 10000 });
+    await jiraSuggestion.click();
+    await page.getByRole('button', { name: 'Save' }).click();
+    await dismissProfileUpdateConfirmation(page);
+
+    await expect(page.getByText('JIRA', { exact: true }).first()).toBeVisible();
+  });
+
   await test.step('Open resume section', async () => {
     await page.getByRole('button', { name: 'Resume', exact: true }).click();
   });
@@ -131,10 +202,7 @@ test('Naukri login, refresh resume, and update resume headline', async ({ page }
   });
 
   await test.step('Dismiss update confirmation if present', async () => {
-    const closeSuccessPopup = page.getByRole('button', { name: 'Close' });
-    if (await closeSuccessPopup.isVisible().catch(() => false)) {
-      await closeSuccessPopup.click();
-    }
+    await dismissProfileUpdateConfirmation(page);
   });
 
   await test.step('Open profile menu', async () => {
